@@ -4,7 +4,7 @@ go 1.13
 
 require (
 	github.com/evanphx/json-patch v4.11.0+incompatible
-	github.com/hashicorp/terraform-plugin-sdk v1.15.0
+	github.com/hashicorp/terraform-plugin-sdk/v2 v2.7.1
 	github.com/itchyny/gojq v0.12.4
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/mapstructure v1.3.3
