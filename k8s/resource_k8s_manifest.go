@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/itchyny/gojq"
 	"log"
 	"strings"
 	"time"
+
+	"github.com/itchyny/gojq"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
@@ -109,11 +110,7 @@ func resourceK8sManifestCreate(d *schema.ResourceData, config interface{}) error
 }
 
 func waitForReadyStatus(d *schema.ResourceData, c client.Client, object *unstructured.Unstructured, timeout time.Duration) error {
-	objectKey, err := client.ObjectKeyFromObject(object)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
-	}
+	objectKey := client.ObjectKeyFromObject(object)
 
 	createStateConf := &resource.StateChangeConf{
 		Pending: []string{
@@ -123,7 +120,7 @@ func waitForReadyStatus(d *schema.ResourceData, c client.Client, object *unstruc
 			"ready",
 		},
 		Refresh: func() (interface{}, string, error) {
-			err = c.Get(context.Background(), objectKey, object)
+			err := c.Get(context.Background(), objectKey, object)
 			if err != nil {
 				log.Printf("[DEBUG] Received error: %#v", err)
 				return nil, "error", err
@@ -207,7 +204,7 @@ func waitForReadyStatus(d *schema.ResourceData, c client.Client, object *unstruc
 		ContinuousTargetOccurence: 1,
 	}
 
-	_, err = createStateConf.WaitForState()
+	_, err := createStateConf.WaitForState()
 	if err != nil {
 		return fmt.Errorf("Error waiting for resource (%s) to be created: %s", d.Id(), err)
 	}
@@ -238,11 +235,7 @@ func resourceK8sManifestRead(d *schema.ResourceData, config interface{}) error {
 	object.SetNamespace(namespace)
 	object.SetName(name)
 
-	objectKey, err := client.ObjectKeyFromObject(object)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
-	}
+	objectKey := client.ObjectKeyFromObject(object)
 
 	client := config.(*ProviderConfig).RuntimeClient
 
@@ -333,11 +326,7 @@ func resourceK8sManifestUpdate(d *schema.ResourceData, config interface{}) error
 			modified.SetNamespace(namespace)
 		}
 
-		objectKey, err := client.ObjectKeyFromObject(modified)
-		if err != nil {
-			log.Printf("[DEBUG] Received error: %#v", err)
-			return err
-		}
+		objectKey := client.ObjectKeyFromObject(modified)
 
 		current := modified.DeepCopy()
 
@@ -386,11 +375,7 @@ func resourceK8sManifestDelete(d *schema.ResourceData, config interface{}) error
 	currentObject.SetNamespace(namespace)
 	currentObject.SetName(name)
 
-	objectKey, err := client.ObjectKeyFromObject(currentObject)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
-	}
+	objectKey := client.ObjectKeyFromObject(currentObject)
 
 	deleteCascade := d.Get("delete_cascade").(bool)
 	deleteOptions := []client.DeleteOption{}
@@ -460,11 +445,7 @@ func resourceK8sManifestImport(d *schema.ResourceData, config interface{}) ([]*s
 	object.SetNamespace(namespace)
 	object.SetName(name)
 
-	objectKey, err := client.ObjectKeyFromObject(object)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return nil, err
-	}
+	objectKey := client.ObjectKeyFromObject(object)
 
 	client := config.(*ProviderConfig).RuntimeClient
 
