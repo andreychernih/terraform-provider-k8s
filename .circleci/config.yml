@@ -148,7 +148,6 @@ jobs:
                     terraform_version: 0.12.20
                     example_dir: examples/0.12
 
-
 #     release:
 #         executor: docker
 
