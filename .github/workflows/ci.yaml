@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  integration-test:
+    name: Integration test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kube: ["1.16.15", "1.17.17", "1.18.20", "1.19.14", "1.20.10", "1.21.4"]
+        terraform: ["0.12.31"]
+
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.16
+
+      - name: Set up minikube
+        uses: sagikazarmark/setup-minikube-action@v0
+        with:
+          version: v1.23.0
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Launch cluster
+        run: |
+          minikube start --kubernetes-version=v${{ matrix.kube }}
+
+          METALLB_IP_PREFIX_RANGE=$(minikube ip | sed -r 's/(.*)./\1/')
+          cat ~/.minikube/profiles/minikube/config.json  \
+          | jq '.KubernetesConfig.LoadBalancerStartIP="'${METALLB_IP_PREFIX_RANGE}105'"' \
+          | jq '.KubernetesConfig.LoadBalancerEndIP="'${METALLB_IP_PREFIX_RANGE}120'"' \
+          > ~/.minikube/profiles/minikube/config.json.tmp && mv ~/.minikube/profiles/minikube/config.json.tmp ~/.minikube/profiles/minikube/config.json
+
+          minikube addons enable metallb
+          minikube addons configure metallb
+
+      - name: Test
+        run: make TERRAFORM_VERSION=${{ matrix.terraform }} test-integration
