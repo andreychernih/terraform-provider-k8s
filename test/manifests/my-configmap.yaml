@@ -1,0 +1,9 @@
+---
+
+kind: ConfigMap
+apiVersion: v1
+metadata:
+    name: my-configmap
+    namespace: default
+data:
+    greeting: ${greeting}

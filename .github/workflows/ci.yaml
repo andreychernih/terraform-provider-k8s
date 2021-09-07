@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kube: ["1.16.15", "1.17.17", "1.18.20", "1.19.14", "1.20.10", "1.21.4"]
+        kube: ["1.19", "1.20", "1.21"]
         terraform: ["0.12.31"]
 
     steps:
@@ -22,28 +22,35 @@ jobs:
         with:
           go-version: 1.16
 
-      - name: Set up minikube
-        uses: sagikazarmark/setup-minikube-action@v0
-        with:
-          version: v1.23.0
-
       - name: Checkout
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
 
-      - name: Launch cluster
+      # See https://github.com/kubernetes-sigs/kind/releases/tag/v0.11.1
+      - name: Determine KinD node image version
+        id: node_image
         run: |
-          minikube start --kubernetes-version=v${{ matrix.kube }}
+          case ${{ matrix.kube }} in
+            1.19)
+              NODE_IMAGE=kindest/node:v1.19.11@sha256:07db187ae84b4b7de440a73886f008cf903fcf5764ba8106a9fd5243d6f32729 ;;
+            1.20)
+              NODE_IMAGE=kindest/node:v1.20.7@sha256:cbeaf907fc78ac97ce7b625e4bf0de16e3ea725daf6b04f930bd14c67c671ff9 ;;
+            1.21)
+              NODE_IMAGE=kindest/node:v1.21.1@sha256:69860bda5563ac81e3c0057d654b5253219618a22ec3a346306239bba8cfa1a6 ;;
+            esac
 
-          METALLB_IP_PREFIX_RANGE=$(minikube ip | sed -r 's/(.*)./\1/')
-          cat ~/.minikube/profiles/minikube/config.json  \
-          | jq '.KubernetesConfig.LoadBalancerStartIP="'${METALLB_IP_PREFIX_RANGE}105'"' \
-          | jq '.KubernetesConfig.LoadBalancerEndIP="'${METALLB_IP_PREFIX_RANGE}120'"' \
-          > ~/.minikube/profiles/minikube/config.json.tmp && mv ~/.minikube/profiles/minikube/config.json.tmp ~/.minikube/profiles/minikube/config.json
+            echo "::set-output name=image::$NODE_IMAGE"
 
-          minikube addons enable metallb
-          minikube addons configure metallb
+      - name: Create KinD cluster
+        uses: helm/kind-action@v1.1.0
+        with:
+          version: v0.11.1
+          node_image: ${{ steps.node_image.outputs.image }}
+          config: hack/kind.yaml
+
+      - name: Configure cluster
+        run: ./hack/setup-kind.sh
 
       - name: Test
-        run: make TERRAFORM_VERSION=${{ matrix.terraform }} test-integration
+        run: make TERRAFORM_VERSION=${{ matrix.terraform }} EXAMPLE_DIR=test/terraform test-integration
