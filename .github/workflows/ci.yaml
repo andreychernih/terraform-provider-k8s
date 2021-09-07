@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         kube: ["1.19", "1.20", "1.21"]
-        terraform: ["0.12.31", "0.13.7", "0.14.11", "0.15.5", "1.0.6"]
+        terraform: ["0.12.31", "0.14.11", "0.15.5", "1.0.6"] # skip 0.13.7 for now
 
     steps:
       - name: Set up Go
