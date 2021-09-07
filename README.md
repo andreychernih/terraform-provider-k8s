@@ -14,7 +14,7 @@ Use `go get` to install the provider:
 go get -u github.com/banzaicloud/terraform-provider-k8s
 ```
 
-Register the plugin in `~/.terraformrc` (see [Documentation](https://www.terraform.io/docs/commands/cli-config.html) for Windows users): 
+Register the plugin in `~/.terraformrc` (see [Documentation](https://www.terraform.io/docs/commands/cli-config.html) for Windows users):
 
 ```hcl
 providers {
@@ -155,7 +155,7 @@ resource "k8s_manifest" "nginx-deployment" {
 
 ## Helm workflow
 
-#### Requirements 
+#### Requirements
 
 - Helm 2 or Helm 3
 
@@ -297,6 +297,26 @@ The following arguments are supported:
 gpg --fingerprint $MY_EMAIL
 export GPG_FINGERPRINT="THEF FING ERPR INTO OFTH  EPUB LICK EYOF YOU!"
 goreleaser release --rm-dist -p 2
+```
+
+## Testing
+
+Create a [kind](https://kind.sigs.k8s.io) cluster with the attached configuration file:
+
+```bash
+kind create cluster --config hack/kind.yaml
+```
+
+Once the cluster is running, run the setup script:
+
+```bash
+./hack/setup-kind.sh
+```
+
+Finally, run the integration test suite:
+
+```bash
+make EXAMPLE_DIR=test/terraform test-integration
 ```
 
 [kubernetes-provider]: https://www.terraform.io/docs/providers/kubernetes/index.html

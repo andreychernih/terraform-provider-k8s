@@ -1,6 +1,6 @@
 # A Self-Documenting Makefile: http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 
-OS = $(shell uname)
+OS = $(shell uname | tr A-Z a-z)
 
 BINARY_NAME = terraform-provider-k8s
 
@@ -18,11 +18,13 @@ endif
 TEST_FORMAT = short-verbose
 endif
 
+export TF_CLI_CONFIG_FILE = ${PWD}/.terraformrc
+
 # Dependency versions
 GOTESTSUM_VERSION = 0.3.5
 GOLANGCI_VERSION = 1.17.1
 GORELEASER_VERSION = 0.113.0
-TERRAFORM_VERSION = 0.12.8
+TERRAFORM_VERSION = 1.0.6
 
 GOLANG_VERSION = 1.13
 
@@ -50,31 +52,56 @@ endif
 
 .PHONY: test-integration
 test-integration: EXAMPLE_DIR ?= examples/0.12
-test-integration: build bin/terraform ## Execute integration tests
+test-integration: build bin/terraform .terraformrc ## Execute integration tests
+ifneq (,$(findstring 0.12.,${TERRAFORM_VERSION}))
 	cp build/terraform-provider-k8s .
+	cp hack/versions012.tf ${EXAMPLE_DIR}/versions.tf
 	bin/terraform init ${EXAMPLE_DIR}
-	bin/terraform apply -auto-approve ${EXAMPLE_DIR}
+	bin/terraform apply -auto-approve -input=false ${EXAMPLE_DIR}
+else ifneq (,$(findstring 0.13.,${TERRAFORM_VERSION}))
+	cp build/terraform-provider-k8s .
+	cp hack/versions012.tf ${EXAMPLE_DIR}/versions.tf
+	bin/terraform init ${EXAMPLE_DIR}
+	bin/terraform apply -auto-approve -input=false ${EXAMPLE_DIR}
+else
+	mkdir -p build/registry.terraform.io/banzaicloud/k8s/99.99.99/${OS}_amd64
+	cp build/terraform-provider-k8s build/registry.terraform.io/banzaicloud/k8s/99.99.99/${OS}_amd64/
+	cp hack/versions.tf ${EXAMPLE_DIR}
+	bin/terraform -chdir=${EXAMPLE_DIR} init
+	bin/terraform -chdir=${EXAMPLE_DIR} apply -auto-approve -input=false
+endif
 	${MAKE} test-integration-destroy EXAMPLE_DIR=${EXAMPLE_DIR}
 
 .PHONY: test-integration-destroy
 test-integration-destroy: EXAMPLE_DIR ?= examples/0.12
-test-integration-destroy:
+test-integration-destroy: bin/terraform .terraformrc
+ifneq (,$(findstring 0.12.,${TERRAFORM_VERSION}))
 	bin/terraform destroy -auto-approve ${EXAMPLE_DIR}
 	rm terraform-provider-k8s
+else ifneq (,$(findstring 0.13.,${TERRAFORM_VERSION}))
+	bin/terraform destroy -auto-approve ${EXAMPLE_DIR}
+	rm terraform-provider-k8s
+else
+	bin/terraform -chdir=${EXAMPLE_DIR} destroy -auto-approve
+	rm -rf ${EXAMPLE_DIR}/{.terraform,.terraform.lock.hcl}
+endif
 
 bin/terraform: bin/terraform-${TERRAFORM_VERSION}
 	@ln -sf terraform-${TERRAFORM_VERSION} bin/terraform
 bin/terraform-${TERRAFORM_VERSION}:
 	@mkdir -p bin
-ifeq (${OS}, Darwin)
+ifeq (${OS}, darwin)
 	curl -sfL https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_darwin_amd64.zip > bin/terraform.zip
 endif
-ifeq (${OS}, Linux)
+ifeq (${OS}, linux)
 	curl -sfL https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip > bin/terraform.zip
 endif
 	unzip -d bin bin/terraform.zip
 	@mv bin/terraform $@
 	rm bin/terraform.zip
+
+.terraformrc:
+	sed "s|PATH|$$PWD/build|" hack/.terraformrc.tpl > .terraformrc
 
 bin/goreleaser: bin/goreleaser-${GORELEASER_VERSION}
 	@ln -sf goreleaser-${GORELEASER_VERSION} bin/goreleaser
