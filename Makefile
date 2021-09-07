@@ -58,6 +58,11 @@ ifneq (,$(findstring 0.12.,${TERRAFORM_VERSION}))
 	cp hack/versions012.tf ${EXAMPLE_DIR}/versions.tf
 	bin/terraform init ${EXAMPLE_DIR}
 	bin/terraform apply -auto-approve -input=false ${EXAMPLE_DIR}
+else ifneq (,$(findstring 0.13.,${TERRAFORM_VERSION}))
+	cp build/terraform-provider-k8s .
+	cp hack/versions012.tf ${EXAMPLE_DIR}/versions.tf
+	bin/terraform init ${EXAMPLE_DIR}
+	bin/terraform apply -auto-approve -input=false ${EXAMPLE_DIR}
 else
 	mkdir -p build/registry.terraform.io/banzaicloud/k8s/99.99.99/${OS}_amd64
 	cp build/terraform-provider-k8s build/registry.terraform.io/banzaicloud/k8s/99.99.99/${OS}_amd64/
@@ -71,6 +76,9 @@ endif
 test-integration-destroy: EXAMPLE_DIR ?= examples/0.12
 test-integration-destroy: bin/terraform .terraformrc
 ifneq (,$(findstring 0.12.,${TERRAFORM_VERSION}))
+	bin/terraform destroy -auto-approve ${EXAMPLE_DIR}
+	rm terraform-provider-k8s
+else ifneq (,$(findstring 0.13.,${TERRAFORM_VERSION}))
 	bin/terraform destroy -auto-approve ${EXAMPLE_DIR}
 	rm terraform-provider-k8s
 else
