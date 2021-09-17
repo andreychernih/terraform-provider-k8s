@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/itchyny/gojq"
 	"log"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"github.com/itchyny/gojq"
 	"github.com/mitchellh/mapstructure"
 	goyaml "gopkg.in/yaml.v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,12 +27,12 @@ import (
 
 func resourceK8sManifest() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceK8sManifestCreate,
-		Read:   resourceK8sManifestRead,
-		Update: resourceK8sManifestUpdate,
-		Delete: resourceK8sManifestDelete,
+		CreateContext: resourceK8sManifestCreate,
+		ReadContext:   resourceK8sManifestRead,
+		UpdateContext: resourceK8sManifestUpdate,
+		DeleteContext: resourceK8sManifestDelete,
 		Importer: &schema.ResourceImporter{
-			State: resourceK8sManifestImport,
+			StateContext: resourceK8sManifestImport,
 		},
 		Schema: map[string]*schema.Schema{
 			"namespace": {
@@ -70,14 +71,13 @@ func resourceK8sManifest() *schema.Resource {
 	}
 }
 
-func resourceK8sManifestCreate(d *schema.ResourceData, config interface{}) error {
-
+func resourceK8sManifestCreate(ctx context.Context, d *schema.ResourceData, config interface{}) diag.Diagnostics {
 	namespace := d.Get("namespace").(string)
 	content := d.Get("content").(string)
 
 	object, err := contentToObject(content)
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
 	objectNamespace := object.GetNamespace()
@@ -92,28 +92,24 @@ func resourceK8sManifestCreate(d *schema.ResourceData, config interface{}) error
 	client := config.(*ProviderConfig).RuntimeClient
 
 	log.Printf("[INFO] Creating new manifest: %#v", object)
-	err = client.Create(context.Background(), object)
+	err = client.Create(ctx, object)
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
 	// this must stand before the wait to avoid losing state on error
 	d.SetId(buildId(object))
 
-	err = waitForReadyStatus(d, client, object, d.Timeout(schema.TimeoutCreate))
+	err = waitForReadyStatus(ctx, d, client, object, d.Timeout(schema.TimeoutCreate))
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
-	return resourceK8sManifestRead(d, config)
+	return resourceK8sManifestRead(ctx, d, config)
 }
 
-func waitForReadyStatus(d *schema.ResourceData, c client.Client, object *unstructured.Unstructured, timeout time.Duration) error {
-	objectKey, err := client.ObjectKeyFromObject(object)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
-	}
+func waitForReadyStatus(ctx context.Context, d *schema.ResourceData, c client.Client, object *unstructured.Unstructured, timeout time.Duration) error {
+	objectKey := client.ObjectKeyFromObject(object)
 
 	createStateConf := &resource.StateChangeConf{
 		Pending: []string{
@@ -123,7 +119,7 @@ func waitForReadyStatus(d *schema.ResourceData, c client.Client, object *unstruc
 			"ready",
 		},
 		Refresh: func() (interface{}, string, error) {
-			err = c.Get(context.Background(), objectKey, object)
+			err := c.Get(ctx, objectKey, object)
 			if err != nil {
 				log.Printf("[DEBUG] Received error: %#v", err)
 				return nil, "error", err
@@ -207,7 +203,7 @@ func waitForReadyStatus(d *schema.ResourceData, c client.Client, object *unstruc
 		ContinuousTargetOccurence: 1,
 	}
 
-	_, err = createStateConf.WaitForState()
+	_, err := createStateConf.WaitForState()
 	if err != nil {
 		return fmt.Errorf("Error waiting for resource (%s) to be created: %s", d.Id(), err)
 	}
@@ -221,16 +217,16 @@ type status struct {
 	LoadBalancer  *map[string]interface{}
 }
 
-func resourceK8sManifestRead(d *schema.ResourceData, config interface{}) error {
+func resourceK8sManifestRead(ctx context.Context, d *schema.ResourceData, config interface{}) diag.Diagnostics {
 	namespace, gv, kind, name, err := idParts(d.Id())
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
 	groupVersion, err := k8sschema.ParseGroupVersion(gv)
 	if err != nil {
 		log.Printf("[DEBUG] Invalid group version in resource ID: %#v", err)
-		return err
+		return diag.FromErr(err)
 	}
 
 	object := &unstructured.Unstructured{}
@@ -238,16 +234,12 @@ func resourceK8sManifestRead(d *schema.ResourceData, config interface{}) error {
 	object.SetNamespace(namespace)
 	object.SetName(name)
 
-	objectKey, err := client.ObjectKeyFromObject(object)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
-	}
+	objectKey := client.ObjectKeyFromObject(object)
 
 	client := config.(*ProviderConfig).RuntimeClient
 
 	log.Printf("[INFO] Reading object %s", name)
-	err = client.Get(context.Background(), objectKey, object)
+	err = client.Get(ctx, objectKey, object)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Printf("[INFO] Object missing: %#v", object)
@@ -261,7 +253,7 @@ func resourceK8sManifestRead(d *schema.ResourceData, config interface{}) error {
 		}
 
 		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
+		return diag.FromErr(err)
 	}
 	log.Printf("[INFO] Received object: %#v", object)
 
@@ -270,12 +262,12 @@ func resourceK8sManifestRead(d *schema.ResourceData, config interface{}) error {
 		content := d.Get("content").(string)
 		contentModified, err := excludeIgnoreFields(ignoreFields, content)
 		if err != nil {
-			return err
+			return diag.FromErr(err)
 		}
 
 		contentYaml, err := json2Yaml(contentModified)
 		if err != nil {
-			return err
+			return diag.FromErr(err)
 		}
 
 		d.Set("override_content", contentYaml)
@@ -286,13 +278,13 @@ func resourceK8sManifestRead(d *schema.ResourceData, config interface{}) error {
 	return nil
 }
 
-func resourceK8sManifestUpdate(d *schema.ResourceData, config interface{}) error {
+func resourceK8sManifestUpdate(ctx context.Context, d *schema.ResourceData, config interface{}) diag.Diagnostics {
 	var originalData string
 	var newData string
 
 	namespace, _, _, _, err := idParts(d.Id())
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
 	if d.HasChanges("content", "ignore_fields") {
@@ -304,24 +296,24 @@ func resourceK8sManifestUpdate(d *schema.ResourceData, config interface{}) error
 		if hasIgnoreFields {
 			originalData, err = excludeIgnoreFields(ignoreFields, originalDataRaw.(string))
 			if err != nil {
-				return err
+				return diag.FromErr(err)
 			}
 
 			newData, err = excludeIgnoreFields(ignoreFields, newDataRaw.(string))
 			if err != nil {
-				return err
+				return diag.FromErr(err)
 			}
 		}
 
 		log.Printf("[DEBUG] Original vs modified: %s %s", originalData, newData)
 		modified, err := contentToObject(newData)
 		if err != nil {
-			return err
+			return diag.FromErr(err)
 		}
 
 		original, err := contentToObject(originalData)
 		if err != nil {
-			return err
+			return diag.FromErr(err)
 		}
 
 		objectNamespace := modified.GetNamespace()
@@ -333,20 +325,16 @@ func resourceK8sManifestUpdate(d *schema.ResourceData, config interface{}) error
 			modified.SetNamespace(namespace)
 		}
 
-		objectKey, err := client.ObjectKeyFromObject(modified)
-		if err != nil {
-			log.Printf("[DEBUG] Received error: %#v", err)
-			return err
-		}
+		objectKey := client.ObjectKeyFromObject(modified)
 
 		current := modified.DeepCopy()
 
 		client := config.(*ProviderConfig).RuntimeClient
 
-		err = client.Get(context.Background(), objectKey, current)
+		err = client.Get(ctx, objectKey, current)
 		if err != nil {
 			log.Printf("[DEBUG] Received error: %#v", err)
-			return err
+			return diag.FromErr(err)
 		}
 
 		modified.SetResourceVersion(current.DeepCopy().GetResourceVersion())
@@ -356,29 +344,29 @@ func resourceK8sManifestUpdate(d *schema.ResourceData, config interface{}) error
 
 		if err := patch(config.(*ProviderConfig).RuntimeClient, modified, original, current); err != nil {
 			log.Printf("[DEBUG] Received error: %#v", err)
-			return err
+			return diag.FromErr(err)
 		}
 		log.Printf("[INFO] Updated object: %#v", modified)
 
-		err = waitForReadyStatus(d, client, modified, d.Timeout(schema.TimeoutCreate))
+		err = waitForReadyStatus(ctx, d, client, modified, d.Timeout(schema.TimeoutCreate))
 		if err != nil {
-			return err
+			return diag.FromErr(err)
 		}
 	}
 
-	return resourceK8sManifestRead(d, config)
+	return resourceK8sManifestRead(ctx, d, config)
 }
 
-func resourceK8sManifestDelete(d *schema.ResourceData, config interface{}) error {
+func resourceK8sManifestDelete(ctx context.Context, d *schema.ResourceData, config interface{}) diag.Diagnostics {
 	namespace, gv, kind, name, err := idParts(d.Id())
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
 	groupVersion, err := k8sschema.ParseGroupVersion(gv)
 	if err != nil {
 		log.Printf("[DEBUG] Invalid group version in resource ID: %#v", err)
-		return err
+		return diag.FromErr(err)
 	}
 
 	currentObject := &unstructured.Unstructured{}
@@ -386,11 +374,7 @@ func resourceK8sManifestDelete(d *schema.ResourceData, config interface{}) error
 	currentObject.SetNamespace(namespace)
 	currentObject.SetName(name)
 
-	objectKey, err := client.ObjectKeyFromObject(currentObject)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
-	}
+	objectKey := client.ObjectKeyFromObject(currentObject)
 
 	deleteCascade := d.Get("delete_cascade").(bool)
 	deleteOptions := []client.DeleteOption{}
@@ -401,10 +385,10 @@ func resourceK8sManifestDelete(d *schema.ResourceData, config interface{}) error
 	client := config.(*ProviderConfig).RuntimeClient
 
 	log.Printf("[INFO] Deleting object %s", name)
-	err = client.Delete(context.Background(), currentObject, deleteOptions...)
+	err = client.Delete(ctx, currentObject, deleteOptions...)
 	if err != nil {
 		log.Printf("[DEBUG] Received error: %#v", err)
-		return err
+		return diag.FromErr(err)
 	}
 
 	createStateConf := &resource.StateChangeConf{
@@ -415,7 +399,7 @@ func resourceK8sManifestDelete(d *schema.ResourceData, config interface{}) error
 			"deleted",
 		},
 		Refresh: func() (interface{}, string, error) {
-			err := client.Get(context.Background(), objectKey, currentObject)
+			err := client.Get(ctx, objectKey, currentObject)
 			if err != nil {
 				log.Printf("[INFO] error when deleting object %s: %+v", name, err)
 				if apierrors.IsNotFound(err) {
@@ -434,7 +418,7 @@ func resourceK8sManifestDelete(d *schema.ResourceData, config interface{}) error
 
 	_, err = createStateConf.WaitForState()
 	if err != nil {
-		return fmt.Errorf("Error waiting for resource (%s) to be deleted: %s", d.Id(), err)
+		return diag.FromErr(fmt.Errorf("Error waiting for resource (%s) to be deleted: %s", d.Id(), err))
 	}
 
 	log.Printf("[INFO] Deleted object: %#v", currentObject)
@@ -442,8 +426,7 @@ func resourceK8sManifestDelete(d *schema.ResourceData, config interface{}) error
 	return nil
 }
 
-func resourceK8sManifestImport(d *schema.ResourceData, config interface{}) ([]*schema.ResourceData, error) {
-
+func resourceK8sManifestImport(ctx context.Context, d *schema.ResourceData, config interface{}) ([]*schema.ResourceData, error) {
 	namespace, gv, kind, name, err := idParts(d.Id())
 	if err != nil {
 		return nil, err
@@ -460,15 +443,11 @@ func resourceK8sManifestImport(d *schema.ResourceData, config interface{}) ([]*s
 	object.SetNamespace(namespace)
 	object.SetName(name)
 
-	objectKey, err := client.ObjectKeyFromObject(object)
-	if err != nil {
-		log.Printf("[DEBUG] Received error: %#v", err)
-		return nil, err
-	}
+	objectKey := client.ObjectKeyFromObject(object)
 
 	client := config.(*ProviderConfig).RuntimeClient
 
-	err = client.Get(context.Background(), objectKey, object)
+	err = client.Get(ctx, objectKey, object)
 	if err != nil {
 		log.Printf("[DEBUG] Received error: %#v", err)
 		return nil, err
